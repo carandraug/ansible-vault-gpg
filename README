@@ -1,0 +1,179 @@
+# Ansible Vault with GPG
+
+Ansible Vault scripts to keep the vault password encripted with PGP
+keys of multiple people.
+
+The goal is to able to decrypt old secrets, even after the vault
+password has changed and everyone forgot what the vault password was
+at the time.
+
+The approach taken here is to simply keep the vault password under
+version control too, but encrypted.  The vault password is encrypted
+with the PGP keys of all people involved so there is no need to share
+a password between them.  As long as one of the keys used to encrypt
+the previous vault password is available, it is possible to recover
+old vault passwords --- as well as the secrets encrypted with them.
+
+The code is here is really simple and short, a few tens of shell line,
+most of which are checks.  I invite you to take a look to be
+comfortable with what it's doing.
+
+
+## Intro
+
+Ansible vault is the solution to store secrets such as passwords in
+ansible playbooks.  Basically, it encrypts those secrets with a
+password, the vault password.  If more than person needs access to
+those secrets, then all need access to the vault password.  This is
+one strategy to share the vault password.  For more details on ansible
+vault, including alternative strategies, refer to the [ansible-vault
+documentation](https://docs.ansible.com/ansible/latest/user_guide/vault.html)
+
+
+## Install
+
+To use this, copy the contents of `src` directory into `scripts/vault`
+(relative to the root of your ansible repo) and ensure that the
+`scripts/vault/gpg-vault-password-client.sh` script has executable
+permissions:
+
+    chmod a+x scripts/vault/gpg-vault-password-client.sh
+
+Then configure ansible vault to use that script as the default
+password, by adding the following to `ansible.cfg`:
+
+    [defaults]
+    vault_password_file = scripts/vault/gpg-vault-password-client.sh
+
+
+## Usage
+
+If you set `vault_password_file` on `ansible.cfg`, then the ansible
+vault commands should "just work".  There are also a few shell scripts
+(`scripts/vault`) to help in managing the password.
+
+### Initial setup
+
+Place the individual PGP keys of the people that should have access to
+the vault password on a `pgp-keys` directory and list them in
+`PGP_KEYS` in the `scripts/vault/gpg-vault-password-client-lib.sh`
+file (keep the PGP keys under version control too).
+
+Then, set the vault password with:
+
+    scripts/vault/change-vault-password.sh
+
+This will create a `vault-password.gpg` file at the root of the
+ansible repo.  It has the vault password encrypted with all the keys
+listed on `PGP_KEYS`.  You should commit this file.
+
+### Give access to a new person
+
+To provide access to a new person, you need access to that person's
+PGP key.  Add that person's key to the `pgp-keys` directory and list
+it on `gpg-vault-password-client-lib.sh` under `PGP_KEYS`.  Finally:
+
+    scripts/vault/recreate-vault-password-file.sh
+
+This will recreate the `vault-password.gpg` file which should be
+committed to the repo.
+
+If you can rely on your repository access, people can add their own
+keys to the repository and ask others to recreate the vault password
+file.
+
+### Check who can decrypt the vault password
+
+The vault password is in a multi-key encrypted file.  One can inspect
+the list of keys that can decrypt it with:
+
+    gpg --decrypt --list-only vault-password.gpg
+
+### Changing the vault password
+
+Changing the vault password itself is pretty easy.  Just:
+
+    scripts/vault/change-vault-password.sh  # prompts for a new password
+
+Re-encrypting the secrets with the new vault password, not so easy and
+ansible provides little help in doing it.  It is up to you do it.
+
+Think well before changing the password and why you want to do it.  If
+you change the vault password because you think it is compromised,
+then you should also change the secrets (change the value of the
+secrets --- not just re-encrypt them with the new vault password).
+This is because secrets encrypted with the old vault password will
+remain on the repository history so anyone with access to the
+repository and the old vault password will be able to decrypt them.
+The same logic applies if you are changing the vault password for
+"hygiene" reasons.
+
+### "See" the vault password
+
+You should not need to do this.  Ansible commands will fetch it
+automatically.  If you find something not working automatically,
+please fix it (or ask to have it fixed).
+
+If you are just interested in finding what the vault password is, run:
+
+    scripts/vault/gpg-vault-password-client.sh  # may ask for key passphrase
+
+
+## Reasoning for this vault password approach
+
+### Advantages of PGP encrypted vault password
+
+Because the vault password is also under version, we can retrieve the
+value of old secrets even after having changed the vault password.
+
+Ansible vault is not great for updating secrets after changing the
+vault password (rekey) --- we effectively have to remember to do it
+ourselves for all secrets.  With the vault password under version
+control we can always get the old password to rekey forgotten secrets.
+
+If someone accidentally changes the password, we can easily recover
+it.
+
+### Disadvantages of PGP encrypted vault password
+
+We need to be familiar with PGP.  This is not trivial and outside the
+domain of expertise of most people.  The scripts help in using through
+ansible but keeping the private keys and their passphrase private
+falls on each one.
+
+The ability to retrieve an old password is an advantage but it can
+also be a disadvantage.  If we discover that one of our keys is
+compromised then changing the vault password is not enough --- we will
+also need to change all the secrets.  On the other hand, with ansible,
+deploying a change of all secrets is no longer a panacea.
+
+
+## Creating a PGP key and keeping it safe
+
+This is the tricky part.  There are multiple guides online with
+conflicting advice.  Part of the problem is that there is no single
+right approach, it is dependent on each person security needs.  The
+gist of it is:
+
+1. Create a master/certificate key (use your full and real name as
+   displayed in photo documents);
+
+2. Add another user ID with your robots email address;
+
+3. Create a subkey for encryption;
+
+4. Move the master/certificate key out of your computer and somewhere
+   safe and offline.
+
+You should have a read on it to understand what's happening and why.
+Here are some useful links:
+
+- [Linux Kernel maintainer PGP guide](https://www.kernel.org/doc/html/v4.16/process/maintainer-pgp-guide.html)
+
+- [PGP Key Management Guide for NetBSD developers](https://www.netbsd.org/developers/pgp.html)
+
+- [Using OpenPGP subkeys in Debian development](https://wiki.debian.org/Subkeys)
+
+- [The Linux Foundation policy on protecting code integrity with PGP](https://github.com/lfit/itpol/blob/master/protecting-code-integrity.md)
+
+- [GnuPG manual](https://www.gnupg.org/gph/en/manual/book1.html)
