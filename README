@@ -29,6 +29,12 @@ one strategy to share the vault password.  For more details on ansible
 vault, including alternative strategies, refer to the [ansible-vault
 documentation](https://docs.ansible.com/ansible/latest/user_guide/vault.html)
 
+Instead of typing the vault password, we can pass a text file with the
+vault password.  If that file has executable permissions, the file is
+executed and its output is treated as the password.  Here we just
+provide a shell script that calls `gpg` to decrypt the vault password
+file.  A few other utility shell scripts are provided.
+
 
 ## Install
 
